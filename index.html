@@ -263,19 +263,22 @@ async function resolveTaxonId(name) {
   taxonCache[name] = info;
   return info;
 }
-async function fetchObservationsPhotos(taxonId) {
-  const res = await fetch(`${API}/observations?taxon_id=${taxonId}&photos=true&quality_grade=research&per_page=40&order_by=votes&order=desc`);
+// Primary source: the species' CURATED taxon_photos. These are community-vetted
+// to actually depict the bird — not feathers, nests, eggs, or habitat shots that
+// turn up in raw observation photos.
+async function fetchTaxonPhotos(taxonId) {
+  const res = await fetch(`${API}/taxa/${taxonId}`);
   const data = await res.json();
+  const t = (data.results && data.results[0]) || {};
   const photos = [];
-  for (const o of (data.results || [])) {
-    for (const p of (o.photos || [])) {
-      if (!p.url) continue;
-      photos.push({
-        url: p.url.replace("square", "medium"),
-        attribution: p.attribution || "© iNaturalist contributor",
-        link: `https://www.inaturalist.org/observations/${o.id}`
-      });
-    }
+  for (const tp of (t.taxon_photos || [])) {
+    const p = tp.photo;
+    if (!p || !p.url) continue;
+    photos.push({
+      url: p.url.replace("square", "medium"),
+      attribution: p.attribution || "© iNaturalist contributor",
+      link: `https://www.inaturalist.org/photos/${p.id}`
+    });
   }
   return photos;
 }
@@ -314,7 +317,7 @@ async function nextBird() {
   for (const name of order) {
     try {
       const tax = await resolveTaxonId(name);
-      const photos = await fetchObservationsPhotos(tax.id);
+      const photos = await fetchTaxonPhotos(tax.id);
       if (photos.length < 3) continue;
       const chosen = pickN(photos, 3);
       const { descriptor, type } = splitName(name);
