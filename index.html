@@ -263,10 +263,30 @@ async function resolveTaxonId(name) {
   taxonCache[name] = info;
   return info;
 }
-// Primary source: the species' CURATED taxon_photos. These are community-vetted
-// to actually depict the bird — not feathers, nests, eggs, or habitat shots that
-// turn up in raw observation photos.
-async function fetchTaxonPhotos(taxonId) {
+// Many birds are sexually dimorphic (a male Painted Bunting and a female look
+// like different species). To keep all 3 photos looking like the SAME bird, we
+// prefer observations annotated Sex = Male (term_id 9, value 10) and take only
+// each observation's PRIMARY photo — the main subject, which is the whole bird,
+// not a feather/nest detail. Falls back to the curated taxon_photos set.
+async function fetchBirdPhotos(taxonId) {
+  // 1) Male-annotated research observations, primary photo only.
+  try {
+    const res = await fetch(`${API}/observations?taxon_id=${taxonId}&photos=true&quality_grade=research&term_id=9&term_value_id=10&per_page=30&order_by=votes&order=desc`);
+    const data = await res.json();
+    const photos = [];
+    for (const o of (data.results || [])) {
+      const p = (o.photos || [])[0];
+      if (!p || !p.url) continue;
+      photos.push({
+        url: p.url.replace("square", "medium"),
+        attribution: p.attribution || "© iNaturalist contributor",
+        link: `https://www.inaturalist.org/observations/${o.id}`
+      });
+    }
+    if (photos.length >= 3) return photos;
+  } catch (e) { /* fall through */ }
+
+  // 2) Fallback: curated taxon_photos (vetted to depict the species).
   const res = await fetch(`${API}/taxa/${taxonId}`);
   const data = await res.json();
   const t = (data.results && data.results[0]) || {};
@@ -317,7 +337,7 @@ async function nextBird() {
   for (const name of order) {
     try {
       const tax = await resolveTaxonId(name);
-      const photos = await fetchTaxonPhotos(tax.id);
+      const photos = await fetchBirdPhotos(tax.id);
       if (photos.length < 3) continue;
       const chosen = pickN(photos, 3);
       const { descriptor, type } = splitName(name);
